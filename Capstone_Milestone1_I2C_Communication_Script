@@ -1,0 +1,73 @@
+//Libraries to install to PC: Adafruit VL53L0X, Pololu VL53L1X
+
+#include <Wire.h>
+#include <Adafruit_VL53L0X.h> // Use Adafruit's library for VL53L0X
+#include <VL53L1X.h>
+
+#define NUM_SENSORS 1
+
+// Sensor and motor pin arrays
+//Adafruit_VL53L0X sensors[NUM_SENSORS]; 
+VL53L1X sensors[NUM_SENSORS];
+const int xshutPins[NUM_SENSORS] = {2}; // XSHUT pins for each sensor
+const int motorPins[NUM_SENSORS] = {8}; // PWM pins for each motor
+
+void setup() {
+  Serial.begin(9600);
+
+  // Initialize motors as outputs
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    pinMode(motorPins[i], OUTPUT);
+    digitalWrite(motorPins[i], LOW); // Ensure motors are off initially
+  }
+
+  // Initialize I2C
+  Wire.begin();
+
+  // Initialize each sensor
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    pinMode(xshutPins[i], OUTPUT);
+    digitalWrite(xshutPins[i], LOW); // Turn off the sensor
+  }
+
+  delay(100);
+
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    digitalWrite(xshutPins[i], HIGH); // Turn on this sensor
+    delay(10);
+
+    if (!sensors[i].init()) {
+      Serial.print("Failed to initialize sensor ");
+      Serial.println(i);
+      while (1);
+    }
+
+    // Assign a unique I2C address
+    sensors[i].setAddress(0x30 + i);
+    sensors[i].startContinuous(50);
+  }
+
+  Serial.println("All sensors initialized!");
+}
+
+void loop() {
+  for (int i = 0; i < NUM_SENSORS; i++) {
+
+    int current_measurement = sensors[i].read();
+
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.print(current_measurement);
+    Serial.println(" mm");
+
+      // Trigger motor if within 50 cm
+    if (current_measurement <= 500) {
+      analogWrite(motorPins[i], 255); // Full vibration intensity
+    } else {
+      analogWrite(motorPins[i], 0); // Turn off motor
+    }
+  }
+  Serial.println();
+  delay(100); // Small delay for smoother operation
+}
