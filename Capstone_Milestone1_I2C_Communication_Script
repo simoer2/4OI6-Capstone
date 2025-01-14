@@ -53,7 +53,7 @@ void setup() {
 void loop() {
   for (int i = 0; i < NUM_SENSORS; i++) {
 
-    int current_measurement = sensors[i].read();
+    float current_measurement = sensors[i].read();
 
     Serial.print("Sensor ");
     Serial.print(i);
@@ -61,9 +61,16 @@ void loop() {
     Serial.print(current_measurement);
     Serial.println(" mm");
 
-      // Trigger motor if within 50 cm
-    if (current_measurement <= 500) {
-      analogWrite(motorPins[i], 255); // Full vibration intensity
+    int cut_off = 500;
+    if(current_measurement > cut_off){ current_measurement = cut_off;}
+    float motor_ratio = 1 - (current_measurement/cut_off);
+
+    int duty_cycle = 255 * motor_ratio;
+
+      // Trigger motor if within cut_off
+    if (current_measurement <= cut_off) {
+      analogWrite(motorPins[i], duty_cycle); // Full vibration intensity
+      Serial.println(duty_cycle);
     } else {
       analogWrite(motorPins[i], 0); // Turn off motor
     }
