@@ -1,19 +1,17 @@
-//Libraries to install to PC: Adafruit VL53L0X, Pololu VL53L1X
+//Libraries to install to PC: Adafruit VL53L0X
 
 #include <Wire.h>
 #include <Adafruit_VL53L0X.h> // Use Adafruit's library for VL53L0X
-#include <VL53L1X.h>
 
-#define NUM_SENSORS 1
+#define NUM_SENSORS 6
 
 // Sensor and motor pin arrays
-//Adafruit_VL53L0X sensors[NUM_SENSORS]; 
-VL53L1X sensors[NUM_SENSORS];
-const int xshutPins[NUM_SENSORS] = {2}; // XSHUT pins for each sensor
+Adafruit_VL53L0X sensors[NUM_SENSORS]; 
+const int xshutPins[NUM_SENSORS] = {4, 7, 10, 24, 27, 32}; // XSHUT pins for each sensor
 const int motorPins[NUM_SENSORS] = {8}; // PWM pins for each motor
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // Initialize motors as outputs
   for (int i = 0; i < NUM_SENSORS; i++) {
@@ -36,7 +34,7 @@ void setup() {
     digitalWrite(xshutPins[i], HIGH); // Turn on this sensor
     delay(10);
 
-    if (!sensors[i].init()) {
+    if (!sensors[i].begin()) {
       Serial.print("Failed to initialize sensor ");
       Serial.println(i);
       while (1);
@@ -44,22 +42,29 @@ void setup() {
 
     // Assign a unique I2C address
     sensors[i].setAddress(0x30 + i);
-    sensors[i].startContinuous(50);
+    sensors[i].startRangeContinuous();
   }
 
   Serial.println("All sensors initialized!");
+
+
+  //Turn on on-board LED to show initialization complete
+  int onboardLED = 13;
+  pinMode(onboardLED, OUTPUT);
+  digitalWrite(onboardLED, HIGH);
 }
 
 void loop() {
   for (int i = 0; i < NUM_SENSORS; i++) {
-
-    float current_measurement = sensors[i].read();
+    float current_measurement = sensors[i].readRange();
 
     Serial.print("Sensor ");
     Serial.print(i);
     Serial.print(": ");
     Serial.print(current_measurement);
-    Serial.println(" mm");
+    Serial.print("   ");
+
+    /*
 
     int cut_off = 500;
     if(current_measurement > cut_off){ current_measurement = cut_off;}
@@ -73,7 +78,9 @@ void loop() {
       Serial.println(duty_cycle);
     } else {
       analogWrite(motorPins[i], 0); // Turn off motor
-    }
+    } 
+
+    */
   }
   Serial.println();
   delay(100); // Small delay for smoother operation
