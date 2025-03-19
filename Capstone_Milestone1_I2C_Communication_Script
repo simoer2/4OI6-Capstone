@@ -2,49 +2,76 @@
 
 #include <Wire.h>
 #include <Adafruit_VL53L0X.h> // Use Adafruit's library for VL53L0X
+#include <Adafruit_PWMServoDriver.h> // Use Adafruit's library for PWM I2C driver
 
+// Initialize LiDAR pins based on location on vest
 #define NUM_SENSORS 6
+int LFront_lox = 2; //(Note 2 is a dummy variable for a bad wire solder joint)
+int LSide_lox = 25;
+int LRear_lox = 27;
 
-// Sensor and motor pin arrays
+int RFront_lox = 4;
+int RSide_lox = 6;
+int RRear_lox = 8;
+
+// LiDAR sensor pin arrays
 Adafruit_VL53L0X sensors[NUM_SENSORS]; 
-const int xshutPins[NUM_SENSORS] = {4, 7, 10, 24, 27, 32}; // XSHUT pins for each sensor
-const int motorPins[NUM_SENSORS] = {8}; // PWM pins for each motor
+const int xshutPins[NUM_SENSORS] = {LFront_lox, LSide_lox, LRear_lox, RFront_lox, RSide_lox, RRear_lox}; // XSHUT pins for each sensor 
+
+
+// Initialize PWM pins based on location on vest
+int LFront_PWM = 0; 
+int LSide_PWM = 3;
+int LRear_PWM = 4;
+
+int RFront_PWM = 7;
+int RSide_PWM = 8;
+int RRear_PWM = 12;
+
+// Initialize PWM object
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+const int motorPins[NUM_SENSORS] = {LFront_PWM, LSide_PWM, LRear_PWM, RFront_PWM, RSide_PWM, RRear_PWM}; // PWM pin on I2C 
+
+
+
+
 
 void setup() {
   Serial.begin(115200);
-
-  // Initialize motors as outputs
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    pinMode(motorPins[i], OUTPUT);
-    digitalWrite(motorPins[i], LOW); // Ensure motors are off initially
-  }
+  delay(100);
 
   // Initialize I2C
   Wire.begin();
+  Wire.setClock(100000);
 
-  // Initialize each sensor
+  // Initialize PWM driver
+  pwm.begin();
+  pwm.setPWMFreq(1000);
+
+  // Initialize each sensor and ensure motors are off
   for (int i = 0; i < NUM_SENSORS; i++) {
     pinMode(xshutPins[i], OUTPUT);
     digitalWrite(xshutPins[i], LOW); // Turn off the sensor
+    pwm.setPWM(motorPins[i], 0, 4096);
+    delay(50);
   }
 
-  delay(100);
+  delay(1000);
 
   for (int i = 0; i < NUM_SENSORS; i++) {
     digitalWrite(xshutPins[i], HIGH); // Turn on this sensor
-    delay(10);
+    delay(100);
 
-    if (!sensors[i].begin()) {
+    while(!sensors[i].begin()) {
       Serial.print("Failed to initialize sensor ");
       Serial.println(i);
-      while (1);
+      digitalWrite(13, !digitalRead(13));
+      delay(1000);
     }
-
     // Assign a unique I2C address
     sensors[i].setAddress(0x30 + i);
     sensors[i].startRangeContinuous();
   }
-
   Serial.println("All sensors initialized!");
 
 
@@ -54,34 +81,37 @@ void setup() {
   digitalWrite(onboardLED, HIGH);
 }
 
+
+
+
+
+
+
+
 void loop() {
   for (int i = 0; i < NUM_SENSORS; i++) {
     float current_measurement = sensors[i].readRange();
 
-    Serial.print("Sensor ");
+    Serial.print("    Sensor ");
     Serial.print(i);
     Serial.print(": ");
     Serial.print(current_measurement);
     Serial.print("   ");
 
-    /*
-
-    int cut_off = 500;
-    if(current_measurement > cut_off){ current_measurement = cut_off;}
-    float motor_ratio = 1 - (current_measurement/cut_off);
-
-    int duty_cycle = 255 * motor_ratio;
-
-      // Trigger motor if within cut_off
-    if (current_measurement <= cut_off) {
-      analogWrite(motorPins[i], duty_cycle); // Full vibration intensity
-      Serial.println(duty_cycle);
+    int cut_off = 250; // Max Range to produce an output to motors
+    int max_PWM = 2700; //Found experimentally to produce 3.3V DC with this PWM driver
+    float motor_ratio = 1 - (current_measurement/cut_off); //Creates a ratio where closer objects create stronger vibrations
+    int duty_cycle = max_PWM * motor_ratio;
+      
+    if (current_measurement <= cut_off) {// Trigger motor if within cut_off
+      pwm.setPWM(motorPins[i], 0, duty_cycle); 
+      Serial.print(duty_cycle);
     } else {
-      analogWrite(motorPins[i], 0); // Turn off motor
+      pwm.setPWM(motorPins[i], 0, 4096); // Turn off motor
     } 
-
-    */
+    delay(10);
   }
+
   Serial.println();
   delay(100); // Small delay for smoother operation
 }
