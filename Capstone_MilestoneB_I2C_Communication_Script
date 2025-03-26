@@ -6,7 +6,7 @@
 
 // Initialize LiDAR pins based on location on vest
 #define NUM_SENSORS 6
-int LFront_lox = 2; //(Note 2 is a dummy variable for a bad wire solder joint)
+int LFront_lox = 29; //(Note 2 is a dummy variable for a bad wire solder joint)
 int LSide_lox = 25;
 int LRear_lox = 27;
 
@@ -17,6 +17,8 @@ int RRear_lox = 8;
 // LiDAR sensor pin arrays
 Adafruit_VL53L0X sensors[NUM_SENSORS]; 
 const int xshutPins[NUM_SENSORS] = {LFront_lox, LSide_lox, LRear_lox, RFront_lox, RSide_lox, RRear_lox}; // XSHUT pins for each sensor 
+bool xshutPinRestart[NUM_SENSORS] = {true, true, true, true, true, true};
+bool failedRead = false;
 
 
 // Initialize PWM pins based on location on vest
@@ -33,8 +35,61 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 const int motorPins[NUM_SENSORS] = {LFront_PWM, LSide_PWM, LRear_PWM, RFront_PWM, RSide_PWM, RRear_PWM}; // PWM pin on I2C 
 
 
+// Initialize low battery speaker, battery read pin, and time measurements
+int speaker = 36;
+int battery_pin = 15;
+float Voltage; //BEeEeEeEeEeP
+unsigned long current_time_battery = millis();
+unsigned long previous_time_battery = 0;
+const unsigned long period = 1000;
 
 
+
+///////////////////////// LiDAR Initialization Function //////////////
+
+bool lox_init(bool xshutPinInit[NUM_SENSORS]){
+  bool all_init = true;
+  // Initialize each sensor and ensure motors are off
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    if(xshutPinInit[i] == true){
+      pinMode(xshutPins[i], OUTPUT);
+      digitalWrite(xshutPins[i], LOW); // Place selected sensor in standby mode
+      pwm.setPWM(motorPins[i], 0, 4096); //Set associated motor to 0 duty cycle
+      delay(10);
+    }
+  }
+
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    if(xshutPinInit[i] == true){
+      digitalWrite(xshutPins[i], HIGH); // Turn on this sensor
+      delay(50);
+
+      if(!sensors[i].begin()) {
+        Serial.print("Failed to initialize sensor ");
+        Serial.println(i);
+        digitalWrite(13, !digitalRead(13));
+        all_init = false;        
+      }
+      else{
+        // Assign a unique I2C address
+        sensors[i].setAddress(0x30 + i);
+        sensors[i].startRangeContinuous();
+      }
+    }
+  }
+
+  if(all_init){digitalWrite(13, LOW);}
+  return all_init;
+}
+
+
+
+
+
+
+
+
+///////////////////////////// Setup Phase //////////////////////////// 
 
 void setup() {
   Serial.begin(115200);
@@ -48,32 +103,19 @@ void setup() {
   pwm.begin();
   pwm.setPWMFreq(1000);
 
+
+
+
   // Initialize each sensor and ensure motors are off
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    pinMode(xshutPins[i], OUTPUT);
-    digitalWrite(xshutPins[i], LOW); // Turn off the sensor
-    pwm.setPWM(motorPins[i], 0, 4096);
-    delay(50);
-  }
+  bool LiDAR_init = lox_init(xshutPinRestart);
+  if(LiDAR_init){Serial.println("All sensors initialized!");}
+  else{Serial.println("Sensor(s) failed to initialize");}
+  
 
-  delay(1000);
-
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    digitalWrite(xshutPins[i], HIGH); // Turn on this sensor
-    delay(100);
-
-    while(!sensors[i].begin()) {
-      Serial.print("Failed to initialize sensor ");
-      Serial.println(i);
-      digitalWrite(13, !digitalRead(13));
-      delay(1000);
-    }
-    // Assign a unique I2C address
-    sensors[i].setAddress(0x30 + i);
-    sensors[i].startRangeContinuous();
-  }
-  Serial.println("All sensors initialized!");
-
+  //Initialize low battery speaker and battery read pin
+  pinMode(speaker,OUTPUT);
+  digitalWrite(speaker,LOW);
+  pinMode(battery_pin, INPUT);
 
   //Turn on on-board LED to show initialization complete
   int onboardLED = 13;
@@ -85,12 +127,42 @@ void setup() {
 
 
 
-
-
+///////////////////////////// Loop Phase ////////////////////////////
 
 void loop() {
+
+  //Get current time and correct for bit flip
+  current_time_battery = millis();
+
+  //Set all sensors to not be reinitialized
+  if(failedRead == false){
+    //Clear all reinit flags if any left on
+    for (int i = 0; i < NUM_SENSORS; i++) {
+    xshutPinRestart[i] = false;
+    }
+  }
+  //Reinitialize specified sensors in the event a sensor goes down
+  else{
+    bool LiDAR_init = lox_init(xshutPinRestart);
+    if(LiDAR_init){Serial.println("All sensors initialized!");}
+    else{Serial.println("Sensor(s) failed to initialize");}
+
+    //Clear all reinit flags
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      xshutPinRestart[i] = false;
+    }
+
+    //Remove total reinit flag
+    failedRead = false;
+  }
+
+  //Main monitoring loop for LiDAR sensors and Haptic Motor feedback
   for (int i = 0; i < NUM_SENSORS; i++) {
     float current_measurement = sensors[i].readRange();
+    if(current_measurement == 65535.00){
+      xshutPinRestart[i] = true;
+      failedRead = true;
+    }
 
     Serial.print("    Sensor ");
     Serial.print(i);
@@ -106,12 +178,33 @@ void loop() {
     if (current_measurement <= cut_off) {// Trigger motor if within cut_off
       pwm.setPWM(motorPins[i], 0, duty_cycle); 
       Serial.print(duty_cycle);
+      Serial.print("   ");
     } else {
       pwm.setPWM(motorPins[i], 0, 4096); // Turn off motor
     } 
-    delay(10);
+    delay(5);
+
   }
 
+
+  //Measures the voltage of the battery and signals the speaker to beep occasionally
+  Voltage = (float)analogRead(battery_pin)/59;
+  if (Voltage <= 6.0){
+    if((current_time_battery - previous_time_battery) >= period){
+      digitalWrite(speaker,HIGH);
+      previous_time_battery = current_time_battery;
+    }
+    else{
+      digitalWrite(speaker,LOW);
+    }
+  }
+  else{
+    digitalWrite(speaker,LOW);
+  }
+  Serial.print(Voltage);
+  Serial.print('V');
+
+
+
   Serial.println();
-  delay(100); // Small delay for smoother operation
 }
