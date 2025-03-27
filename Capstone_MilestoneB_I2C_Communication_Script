@@ -44,6 +44,10 @@ unsigned long previous_time_battery = 0;
 const unsigned long period = 1000;
 
 
+// Serial Comms
+bool print_teensy = false;
+
+
 
 ///////////////////////// LiDAR Initialization Function //////////////
 
@@ -108,8 +112,11 @@ void setup() {
 
   // Initialize each sensor and ensure motors are off
   bool LiDAR_init = lox_init(xshutPinRestart);
-  if(LiDAR_init){Serial.println("All sensors initialized!");}
-  else{Serial.println("Sensor(s) failed to initialize");}
+  if(print_teensy){
+    if(LiDAR_init){Serial.println("All sensors initialized!");}
+    else{Serial.println("Sensor(s) failed to initialize");}
+  }
+
   
 
   //Initialize low battery speaker and battery read pin
@@ -144,8 +151,11 @@ void loop() {
   //Reinitialize specified sensors in the event a sensor goes down
   else{
     bool LiDAR_init = lox_init(xshutPinRestart);
-    if(LiDAR_init){Serial.println("All sensors initialized!");}
-    else{Serial.println("Sensor(s) failed to initialize");}
+    if(print_teensy){
+      if(LiDAR_init){Serial.println("All sensors initialized!");}
+      else{Serial.println("Sensor(s) failed to initialize");}
+    }
+    
 
     //Clear all reinit flags
     for (int i = 0; i < NUM_SENSORS; i++) {
@@ -164,21 +174,29 @@ void loop() {
       failedRead = true;
     }
 
-    Serial.print("    Sensor ");
-    Serial.print(i);
-    Serial.print(": ");
-    Serial.print(current_measurement);
-    Serial.print("   ");
+    if(print_teensy){
+      Serial.print("    Sensor ");
+      Serial.print(i);
+      Serial.print(": ");
+      Serial.print(current_measurement);
+      Serial.print("   ");
+    }
+    else if((print_teensy == false) && (i<(NUM_SENSORS-1))){
+      Serial.print(i);
+      Serial.print(",");
+    }
+    else{
+      Serial.println(i);
+    }
 
-    int cut_off = 250; // Max Range to produce an output to motors
+
+    int cut_off = 2000; // Max Range to produce an output to motors
     int max_PWM = 2700; //Found experimentally to produce 3.3V DC with this PWM driver
     float motor_ratio = 1 - (current_measurement/cut_off); //Creates a ratio where closer objects create stronger vibrations
     int duty_cycle = max_PWM * motor_ratio;
       
     if (current_measurement <= cut_off) {// Trigger motor if within cut_off
       pwm.setPWM(motorPins[i], 0, duty_cycle); 
-      Serial.print(duty_cycle);
-      Serial.print("   ");
     } else {
       pwm.setPWM(motorPins[i], 0, 4096); // Turn off motor
     } 
@@ -188,8 +206,8 @@ void loop() {
 
 
   //Measures the voltage of the battery and signals the speaker to beep occasionally
-  Voltage = (float)analogRead(battery_pin)/59;
-  if (Voltage <= 6.0){
+  Voltage = (float)analogRead(battery_pin)/62;
+  if (Voltage <= 5.5){
     if((current_time_battery - previous_time_battery) >= period){
       digitalWrite(speaker,HIGH);
       previous_time_battery = current_time_battery;
